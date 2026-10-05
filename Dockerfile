@@ -1,110 +1,108 @@
-FROM runpod/worker-comfyui:5.11.0-base
+FROM runpod/worker-comfyui:5.10.0-base
 
 USER root
 
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_PREFER_BINARY=1
+ENV PYTHONUNBUFFERED=1
+
 # ---------------------------------------------------------
-# Minimal runtime utilities
+# Runtime tools
 # ---------------------------------------------------------
 RUN apt-get update && apt-get install -y \
+    git \
     curl \
+    wget \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # ---------------------------------------------------------
-# RunPod Serverless mounts the selected Network Volume here:
+# Upgrade ComfyUI from the base image's 0.34.0
+# to the required 0.38.2.
+#
+# The RunPod worker already uses /comfyui.
+# ---------------------------------------------------------
+
+WORKDIR /comfyui
+
+RUN git fetch --all --tags && \
+    git checkout v0.38.2
+
+# ---------------------------------------------------------
+# Install dependencies required by ComfyUI 0.38.2
+#
+# RunPod worker uses /opt/venv for runtime.
+# ---------------------------------------------------------
+
+RUN uv pip install \
+    torch==2.11.0 \
+    torchvision==0.26.0 \
+    torchaudio==2.11.0 \
+    --index-url https://download.pytorch.org/whl/cu128
+
+RUN uv pip install -r /comfyui/requirements.txt
+
+# Keep these below major-breaking versions.
+RUN uv pip install \
+    "transformers>=4.50.3,<5" \
+    "huggingface-hub<1.0"
+
+# ---------------------------------------------------------
+# Optional: ComfyUI Manager
+#
+# Manager is not required for the Qwen workflow to execute,
+# because your Qwen 2.1 nodes are core ComfyUI nodes.
+#
+# But install Manager if you want it available for debugging.
+# ---------------------------------------------------------
+
+RUN rm -rf /comfyui/custom_nodes/ComfyUI-Manager && \
+    git clone \
+    https://github.com/Comfy-Org/ComfyUI-Manager.git \
+    /comfyui/custom_nodes/ComfyUI-Manager
+
+# Install Manager requirements if present.
+RUN if [ -f /comfyui/custom_nodes/ComfyUI-Manager/requirements.txt ]; then \
+      uv pip install -r /comfyui/custom_nodes/ComfyUI-Manager/requirements.txt; \
+    fi
+
+# ---------------------------------------------------------
+# Network Volume
+#
+# RunPod Serverless mounts the attached Network Volume:
 #
 # /runpod-volume
 #
-# We expect the volume to contain:
+# Models should exist as:
 #
-# /runpod-volume/comfyui/models/
-#   diffusion_models/
-#   text_encoders/
-#   vae/
-#   loras/
-#
-# The official worker-comfyui image knows how to discover
-# models from this directory structure.
+# /runpod-volume/comfyui/models/diffusion_models/
+# /runpod-volume/comfyui/models/text_encoders/
+# /runpod-volume/comfyui/models/vae/
+# /runpod-volume/comfyui/models/loras/
 # ---------------------------------------------------------
 
 RUN mkdir -p /runpod-volume
 
 # ---------------------------------------------------------
-# Optional startup verification.
+# Build-time verification
 #
-# We do NOT fail the Docker BUILD if the models aren't present,
-# because the Network Volume is only mounted at runtime.
+# This checks that ComfyUI 0.38.2 can actually import
+# successfully before RunPod deploys the image.
 # ---------------------------------------------------------
 
-RUN cat <<'EOF' > /verify_network_volume.sh
-#!/bin/bash
-set -e
-
-echo "=========================================="
-echo "RunPod Network Volume check"
-echo "=========================================="
-
-MODEL_ROOT="/runpod-volume/comfyui/models"
-
-if [ ! -d "$MODEL_ROOT" ]; then
-    echo "WARNING: Network Volume model directory not found:"
-    echo "$MODEL_ROOT"
-    echo
-    echo "Make sure the RunPod Network Volume is attached to"
-    echo "the Serverless endpoint."
-    exit 0
-fi
-
-echo "Network Volume found."
-echo
-
-echo "--- diffusion_models ---"
-ls -lh "$MODEL_ROOT/diffusion_models" 2>/dev/null || true
-
-echo
-echo "--- text_encoders ---"
-ls -lh "$MODEL_ROOT/text_encoders" 2>/dev/null || true
-
-echo
-echo "--- vae ---"
-ls -lh "$MODEL_ROOT/vae" 2>/dev/null || true
-
-echo
-echo "--- loras ---"
-ls -lh "$MODEL_ROOT/loras" 2>/dev/null || true
-
-echo
-echo "=========================================="
-echo "Qwen Image 2.1 expected files"
-echo "=========================================="
-
-for file in \
-  "$MODEL_ROOT/diffusion_models/qwen_image_2.1_int8_convrot.safetensors" \
-  "$MODEL_ROOT/text_encoders/qwen3vl_8b_int8_convrot.safetensors" \
-  "$MODEL_ROOT/text_encoders/qwen3.5_9b_qwen_image_2.1_pe_i2i.int8_convrot.safetensors" \
-  "$MODEL_ROOT/vae/qwen_image_2.1_vae_bf16.safetensors" \
-  "$MODEL_ROOT/loras/Qwen2.1_Anime_consistency.safetensors"
-do
-    if [ -f "$file" ]; then
-        echo "OK: $file"
-    else
-        echo "MISSING: $file"
-    fi
-done
-
-echo "=========================================="
-EOF
-
-RUN chmod +x /verify_network_volume.sh
+RUN cd /comfyui && \
+    timeout 300 python main.py --quick-test-for-ci --cpu
 
 # ---------------------------------------------------------
-# Do NOT put models or Civitai credentials in this image.
-#
-# Models are read from:
-# /runpod-volume/comfyui/models/
-#
-# Keep the base image's default RunPod Serverless CMD /
-# entrypoint intact.
+# Version check
+# ---------------------------------------------------------
+
+RUN cd /comfyui && \
+    git describe --tags --always
+
+# ---------------------------------------------------------
+# Keep the RunPod worker's existing serverless startup.
+# DO NOT replace its CMD.
 # ---------------------------------------------------------
 
 WORKDIR /
