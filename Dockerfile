@@ -6,9 +6,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV PIP_PREFER_BINARY=1
 ENV PYTHONUNBUFFERED=1
 
-# ---------------------------------------------------------
-# Runtime tools
-# ---------------------------------------------------------
 RUN apt-get update && apt-get install -y \
     git \
     curl \
@@ -16,44 +13,45 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# ---------------------------------------------------------
-# Upgrade ComfyUI from the base image's 0.34.0
-# to the required 0.38.2.
-#
-# The RunPod worker already uses /comfyui.
-# ---------------------------------------------------------
-
 WORKDIR /comfyui
+
+# ---------------------------------------------------------
+# ComfyUI 0.38.2
+# ---------------------------------------------------------
 
 RUN git fetch --all --tags && \
     git checkout v0.38.2
 
 # ---------------------------------------------------------
-# Install dependencies required by ComfyUI 0.38.2
-#
-# RunPod worker uses /opt/venv for runtime.
+# Install ComfyUI 0.38.2 requirements
 # ---------------------------------------------------------
-
-RUN uv pip install \
-    torch==2.11.0 \
-    torchvision==0.26.0 \
-    torchaudio==2.11.0 \
-    --index-url https://download.pytorch.org/whl/cu128
 
 RUN uv pip install -r /comfyui/requirements.txt
 
-# Keep these below major-breaking versions.
+# ---------------------------------------------------------
+# Force the native Linux x86_64 comfy-aimdo wheel.
+#
+# The generic py3-none-any wheel can lead to:
+# ModuleNotFoundError: comfy_aimdo.storage
+# ---------------------------------------------------------
+
+RUN uv pip uninstall comfy-aimdo || true
+
+RUN wget -O /tmp/comfy_aimdo.whl \
+    "https://files.pythonhosted.org/packages/5d/18/807dd84d80469c9620928429911b9ff04c699e8b47204423a8804ac3f09d/comfy_aimdo-0.5.5-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl" && \
+    uv pip install /tmp/comfy_aimdo.whl && \
+    rm -f /tmp/comfy_aimdo.whl
+
+# ---------------------------------------------------------
+# Keep compatible HF stack
+# ---------------------------------------------------------
+
 RUN uv pip install \
     "transformers>=4.50.3,<5" \
     "huggingface-hub<1.0"
 
 # ---------------------------------------------------------
-# Optional: ComfyUI Manager
-#
-# Manager is not required for the Qwen workflow to execute,
-# because your Qwen 2.1 nodes are core ComfyUI nodes.
-#
-# But install Manager if you want it available for debugging.
+# ComfyUI Manager
 # ---------------------------------------------------------
 
 RUN rm -rf /comfyui/custom_nodes/ComfyUI-Manager && \
@@ -61,48 +59,50 @@ RUN rm -rf /comfyui/custom_nodes/ComfyUI-Manager && \
     https://github.com/Comfy-Org/ComfyUI-Manager.git \
     /comfyui/custom_nodes/ComfyUI-Manager
 
-# Install Manager requirements if present.
 RUN if [ -f /comfyui/custom_nodes/ComfyUI-Manager/requirements.txt ]; then \
       uv pip install -r /comfyui/custom_nodes/ComfyUI-Manager/requirements.txt; \
     fi
 
 # ---------------------------------------------------------
-# Network Volume
-#
-# RunPod Serverless mounts the attached Network Volume:
-#
-# /runpod-volume
-#
-# Models should exist as:
-#
-# /runpod-volume/comfyui/models/diffusion_models/
-# /runpod-volume/comfyui/models/text_encoders/
-# /runpod-volume/comfyui/models/vae/
-# /runpod-volume/comfyui/models/loras/
+# IMPORTANT:
+# Manager requirements may modify dependencies again,
+# so force comfy-aimdo native wheel one final time.
+# ---------------------------------------------------------
+
+RUN uv pip uninstall comfy-aimdo || true
+
+RUN wget -O /tmp/comfy_aimdo.whl \
+    "https://files.pythonhosted.org/packages/5d/18/807dd84d80469c9620928429911b9ff04c699e8b47204423a8804ac3f09d/comfy_aimdo-0.5.5-cp39-abi3-manylinux2014_x86_64.manylinux_2_17_x86_64.whl" && \
+    uv pip install /tmp/comfy_aimdo.whl && \
+    rm -f /tmp/comfy_aimdo.whl
+
+# ---------------------------------------------------------
+# Verify aimdo BEFORE starting ComfyUI
+# ---------------------------------------------------------
+
+RUN python -c "\
+import comfy_aimdo; \
+import comfy_aimdo.storage; \
+print('comfy_aimdo OK'); \
+print('storage module OK')"
+
+# ---------------------------------------------------------
+# Network volume
 # ---------------------------------------------------------
 
 RUN mkdir -p /runpod-volume
 
 # ---------------------------------------------------------
-# Build-time verification
-#
-# This checks that ComfyUI 0.38.2 can actually import
-# successfully before RunPod deploys the image.
+# Verify ComfyUI startup
 # ---------------------------------------------------------
 
 RUN cd /comfyui && \
     timeout 300 python main.py --quick-test-for-ci --cpu
 
 # ---------------------------------------------------------
-# Version check
+# Verify exact version
 # ---------------------------------------------------------
 
-RUN cd /comfyui && \
-    git describe --tags --always
-
-# ---------------------------------------------------------
-# Keep the RunPod worker's existing serverless startup.
-# DO NOT replace its CMD.
-# ---------------------------------------------------------
+RUN cd /comfyui && git describe --tags --always
 
 WORKDIR /
