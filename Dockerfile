@@ -53,3 +53,36 @@ RUN /opt/venv/bin/python -c \
 
 # Inherit /start.sh and the existing Serverless handler unchanged.
 WORKDIR /
+
+# Disable only cuDNN SDPA at ComfyUI startup, including its local priority list.
+RUN mkdir -p /comfyui/custom_nodes && printf '%s\n' \
+    '"""Disable only cuDNN SDPA; preserve CUDA/INT8 and other attention backends."""' \
+    'import logging' \
+    '' \
+    'import torch' \
+    'import comfy.ops' \
+    'from torch.nn.attention import SDPBackend' \
+    '' \
+    '# Default policy for direct PyTorch SDPA calls.' \
+    'torch.backends.cuda.enable_cudnn_sdp(False)' \
+    '' \
+    '# ComfyUI v0.38.2 enters its own sdpa_kernel context for larger inputs.' \
+    '# Remove cuDNN there too, otherwise that context can re-enable it.' \
+    'if hasattr(comfy.ops, "SDPA_BACKEND_PRIORITY"):' \
+    '    comfy.ops.SDPA_BACKEND_PRIORITY = [' \
+    '        backend for backend in comfy.ops.SDPA_BACKEND_PRIORITY' \
+    '        if backend != SDPBackend.CUDNN_ATTENTION' \
+    '    ]' \
+    '' \
+    'logging.info(' \
+    '    "[qwen-sdpa-fix] cudnn=%s flash=%s efficient=%s math=%s",' \
+    '    torch.backends.cuda.cudnn_sdp_enabled(),' \
+    '    torch.backends.cuda.flash_sdp_enabled(),' \
+    '    torch.backends.cuda.mem_efficient_sdp_enabled(),' \
+    '    torch.backends.cuda.math_sdp_enabled(),' \
+    ')' \
+    '' \
+    '# Startup-only extension: adds no workflow nodes or required dependencies.' \
+    'NODE_CLASS_MAPPINGS = {}' \
+    > /comfyui/custom_nodes/zzz_qwen_no_cudnn_sdpa.py && \
+    /opt/venv/bin/python -m py_compile /comfyui/custom_nodes/zzz_qwen_no_cudnn_sdpa.py
