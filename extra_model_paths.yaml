@@ -1,15 +1,15 @@
-workspace:
-  base_path: /workspace/comfyui
+runpod_worker_comfy:
+  base_path: /runpod-volume
 
-  checkpoints: models/checkpoints/
-  clip: models/clip/
-  clip_vision: models/clip_vision/
-  configs: models/configs/
-  controlnet: models/controlnet/
-  diffusion_models: models/diffusion_models/
-  text_encoders: models/text_encoders/
-  embeddings: models/embeddings/
-  loras: models/loras/
-  upscale_models: models/upscale_models/
-  vae: models/vae/
-  unet: models/unet/
+  checkpoints: comfyui/models/checkpoints/
+  clip: comfyui/models/clip/
+  clip_vision: comfyui/models/clip_vision/
+  configs: comfyui/models/configs/
+  controlnet: comfyui/models/controlnet/
+  diffusion_models: comfyui/models/diffusion_models/
+  text_encoders: comfyui/models/text_encoders/
+  embeddings: comfyui/models/embeddings/
+  loras: comfyui/models/loras/
+  upscale_models: comfyui/models/upscale_models/
+  vae: comfyui/models/vae/
+  unet: comfyui/models/unet/
