@@ -1,0 +1,118 @@
+{
+  "input": {
+    "workflow": {
+      "1": {
+        "class_type": "UNETLoader",
+        "inputs": {
+          "unet_name": "qwen_image_2.1_int8_convrot.safetensors",
+          "weight_dtype": "default"
+        }
+      },
+      "2": {
+        "class_type": "CLIPLoader",
+        "inputs": {
+          "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+          "type": "qwen_image",
+          "device": "default"
+        }
+      },
+      "3": {
+        "class_type": "VAELoader",
+        "inputs": {
+          "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+        }
+      },
+      "4": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "input_image_1.webp"
+        }
+      },
+      "5": {
+        "class_type": "LoadImage",
+        "inputs": {
+          "image": "input_image_2.jpg"
+        }
+      },
+      "6": {
+        "class_type": "TextEncodeQwenImage21",
+        "inputs": {
+          "clip": [
+            "2",
+            0
+          ],
+          "images.image_1": [
+            "4",
+            0
+          ],
+          "images.image_2": [
+            "5",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ],
+          "prompt": "Apply the visual style of <image2> to <image1>, transferring the color palette, lighting, texture, rendering style, line work, shading, and overall aesthetic from <image1> while preserving the subject identity, facial features, body proportions, pose, composition, clothing structure, and core details of <image1>. Make the style transfer strong and unmistakable while keeping the subject in <image2> clearly recognizable and structural consistent.",
+          "negative_prompt": "",
+          "resolution": 1024
+        }
+      },
+      "7": {
+        "class_type": "T8QwenImage21FunAccPDD4Step",
+        "inputs": {
+          "model": [
+            "1",
+            0
+          ],
+          "positive": [
+            "6",
+            0
+          ],
+          "latent_image": [
+            "6",
+            2
+          ],
+          "model_file": "Qwen-Image-2.1-Fun-Acc-4Step-PDD-T8.safetensors",
+          "seed": 0
+        }
+      },
+      "8": {
+        "class_type": "VAEDecode",
+        "inputs": {
+          "samples": [
+            "7",
+            0
+          ],
+          "vae": [
+            "3",
+            0
+          ]
+        }
+      },
+      "9": {
+        "class_type": "SaveImageAdvanced",
+        "inputs": {
+          "images": [
+            "8",
+            0
+          ],
+          "filename_prefix": "Qwen_image_2.1_PDD4",
+          "format": "png",
+          "format.bit_depth": "8-bit",
+          "format.input_color_space": "sRGB"
+        }
+      }
+    },
+    "images": [
+      {
+        "name": "input_image_1.webp",
+        "image": "data:image/webp;<ENTER BASE 64 HERE>"
+      },
+      {
+        "name": "input_image_2.jpg",
+        "image": "data:image/jpeg;base64,<ENTER BASE 64 HERE>"
+      }
+    ]
+  }
+}
